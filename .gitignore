@@ -1,0 +1,10 @@
+.venv/
+descargas/
+dataset/
+data/
+mlruns/
+mlflow.db
+__pycache__/
+registro_inspecciones.csv
+*.keras
+*.joblib

@@ -1,0 +1,9 @@
+.venv
+dataset
+data
+descargas
+mlruns
+mlflow.db
+reports
+__pycache__
+*.csv
