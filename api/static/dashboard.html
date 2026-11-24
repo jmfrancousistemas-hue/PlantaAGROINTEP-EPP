@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AGROINTEP · Control de ingreso EPP</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c232c; --borde:#2a323d; --texto:#e6edf3; --tenue:#8b98a5;
+    --ok:#2ea043; --ok2:#3fb950; --no:#da3633; --no2:#f85149; --duda:#d29922; --duda2:#e3b341; --azul:#58a6ff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--texto);font:15px/1.4 "Segoe UI",system-ui,sans-serif}
+  header{display:flex;align-items:center;gap:16px;padding:14px 22px;border-bottom:1px solid var(--borde);background:#0b0f14}
+  header h1{font-size:19px;margin:0;font-weight:650;letter-spacing:.2px}
+  header .sub{color:var(--tenue);font-size:13px}
+  .pill{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;font-size:12.5px;
+        background:var(--panel2);border:1px solid var(--borde);color:var(--tenue)}
+  .punto{width:9px;height:9px;border-radius:50%;background:var(--tenue)}
+  .punto.on{background:var(--ok2);box-shadow:0 0 8px var(--ok2)}
+  .punto.off{background:var(--no2)}
+  .der{margin-left:auto;display:flex;gap:8px;align-items:center}
+  main{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(330px,1fr);gap:16px;padding:16px 22px}
+  .card{background:var(--panel);border:1px solid var(--borde);border-radius:12px;padding:14px}
+  .card h2{font-size:13px;text-transform:uppercase;letter-spacing:.8px;color:var(--tenue);margin:0 0 10px;font-weight:600}
+  .video{position:relative;border-radius:10px;overflow:hidden;background:#000;aspect-ratio:16/9}
+  .video video,.video canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+  .vacio{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--tenue);text-align:center;padding:20px}
+  .banner{margin-top:12px;border-radius:10px;padding:16px 18px;display:flex;align-items:center;gap:16px;
+          background:var(--panel2);border:2px solid var(--borde);transition:all .25s}
+  .banner .icono{font-size:40px;line-height:1;width:48px;text-align:center}
+  .banner .titulo{font-size:26px;font-weight:750;letter-spacing:.5px}
+  .banner .detalle{color:var(--tenue);font-size:14px;margin-top:2px}
+  .banner.aprobado{background:rgba(46,160,67,.14);border-color:var(--ok)} .banner.aprobado .titulo{color:var(--ok2)}
+  .banner.denegado{background:rgba(218,54,51,.14);border-color:var(--no)} .banner.denegado .titulo{color:var(--no2)}
+  .banner.incierto{background:rgba(210,153,34,.14);border-color:var(--duda)} .banner.incierto .titulo{color:var(--duda2)}
+  .controles{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;align-items:center}
+  button{font:inherit;font-weight:600;border-radius:8px;border:1px solid var(--borde);background:var(--panel2);color:var(--texto);
+         padding:8px 14px;cursor:pointer}
+  button:hover{border-color:var(--azul)}
+  button.prim{background:#1f6feb;border-color:#1f6feb}
+  button.verde{background:rgba(46,160,67,.2);border-color:var(--ok);color:var(--ok2)}
+  button.rojo{background:rgba(218,54,51,.2);border-color:var(--no);color:var(--no2)}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  label.chk{display:flex;gap:6px;align-items:center;color:var(--tenue);font-size:13.5px}
+  input[type=text]{font:inherit;background:var(--panel2);border:1px solid var(--borde);color:var(--texto);border-radius:8px;padding:7px 10px;width:290px}
+  .elementos{display:grid;gap:10px}
+  .el{background:var(--panel2);border:1px solid var(--borde);border-radius:10px;padding:10px 12px}
+  .el .fila{display:flex;justify-content:space-between;align-items:center;margin-bottom:7px}
+  .el .nombre{font-weight:650;font-size:15.5px;text-transform:capitalize}
+  .tag{font-size:12px;font-weight:700;padding:3px 9px;border-radius:999px;text-transform:uppercase;letter-spacing:.5px}
+  .tag.ok{background:rgba(46,160,67,.2);color:var(--ok2)} .tag.falta{background:rgba(218,54,51,.2);color:var(--no2)}
+  .tag.incierto{background:rgba(210,153,34,.2);color:var(--duda2)} .tag.na{background:#2a323d;color:var(--tenue)}
+  .barra{height:10px;border-radius:6px;background:#0b0f14;overflow:hidden;position:relative}
+  .barra i{display:block;height:100%;border-radius:6px;transition:width .25s,background .25s}
+  .barra .marca{position:absolute;top:-2px;bottom:-2px;width:2px;background:#ffffff55}
+  .pct{font-variant-numeric:tabular-nums;color:var(--tenue);font-size:12.5px;margin-top:4px}
+  .kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+  .kpi{background:var(--panel2);border:1px solid var(--borde);border-radius:10px;padding:10px 12px}
+  .kpi .v{font-size:24px;font-weight:750;font-variant-numeric:tabular-nums}
+  .kpi .l{color:var(--tenue);font-size:12px;text-transform:uppercase;letter-spacing:.6px}
+  .kpi.ok .v{color:var(--ok2)} .kpi.no .v{color:var(--no2)} .kpi.duda .v{color:var(--duda2)}
+  .reparto{display:flex;height:12px;border-radius:6px;overflow:hidden;margin-top:10px;background:#0b0f14}
+  .reparto span{transition:width .3s}
+  .lado{display:grid;gap:16px;align-content:start}
+  .tabla{grid-column:1 / -1}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th,td{padding:7px 9px;border-bottom:1px solid var(--borde);text-align:left;white-space:nowrap}
+  th{color:var(--tenue);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.5px;position:sticky;top:0;background:var(--panel)}
+  .scroll{max-height:300px;overflow:auto}
+  .r-aprobado{color:var(--ok2);font-weight:650} .r-denegado{color:var(--no2);font-weight:650} .r-incierto{color:var(--duda2);font-weight:650}
+  .nota{color:var(--tenue);font-size:12.5px}
+  @media (max-width:1000px){main{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <div style="font-size:26px">🛡️</div>
+  <div>
+    <h1>AGROINTEP · Control de ingreso con EPP</h1>
+    <div class="sub">Verificación de cofia, guantes y bata · modelo MobileNetV2 por elemento</div>
+  </div>
+  <div class="der">
+    <span class="pill"><span id="ptApi" class="punto"></span><span id="txApi">API: comprobando…</span></span>
+    <span class="pill" id="txReq">Exigidos: —</span>
+    <span class="pill" id="txReloj">--:--:--</span>
+  </div>
+</header>
+
+<main>
+  <section class="card">
+    <h2>Cámara en vivo</h2>
+    <div class="video">
+      <video id="video" autoplay playsinline muted></video>
+      <canvas id="capa"></canvas>
+      <div class="vacio" id="vacio">Presione <b>&nbsp;Iniciar cámara&nbsp;</b> y permita el acceso.<br>El estudiante debe quedar dentro del recuadro, con los pies en la marca.</div>
+    </div>
+
+    <div class="banner" id="banner">
+      <div class="icono" id="bIcono">⏸</div>
+      <div>
+        <div class="titulo" id="bTitulo">EN ESPERA</div>
+        <div class="detalle" id="bDetalle">La inspección no ha iniciado.</div>
+      </div>
+    </div>
+
+    <div class="controles">
+      <button class="prim" id="btnCam">▶ Iniciar cámara</button>
+      <button class="verde" id="btnAut" disabled>✔ Autorizar (A)</button>
+      <button class="rojo" id="btnRec" disabled>✖ Rechazar (R)</button>
+      <label class="chk"><input type="checkbox" id="chkZona" checked> Mostrar zona</label>
+      <label class="chk"><input type="checkbox" id="chkAuto" checked> Registrar automáticamente</label>
+    </div>
+    <div class="controles">
+      <span class="nota">API:</span>
+      <input type="text" id="url" value="">
+      <span class="nota" id="txRend">— FPS · — ms</span>
+    </div>
+  </section>
+
+  <div class="lado">
+    <section class="card">
+      <h2>Elementos de protección</h2>
+      <div class="elementos" id="elementos">
+        <div class="nota">Sin datos todavía.</div>
+      </div>
+      <div class="nota" style="margin-top:8px">La línea blanca marca el umbral para dar el elemento por presente (0,80).</div>
+    </section>
+
+    <section class="card">
+      <h2>Resumen de la sesión</h2>
+      <div class="kpis">
+        <div class="kpi"><div class="v" id="kTotal">0</div><div class="l">Inspecciones</div></div>
+        <div class="kpi ok"><div class="v" id="kOk">0</div><div class="l">Aprobados</div></div>
+        <div class="kpi no"><div class="v" id="kNo">0</div><div class="l">Denegados</div></div>
+        <div class="kpi duda"><div class="v" id="kDuda">0</div><div class="l">A revisión</div></div>
+        <div class="kpi"><div class="v" id="kDoc">0</div><div class="l">Decisión docente</div></div>
+        <div class="kpi"><div class="v" id="kLat">—</div><div class="l">Latencia media</div></div>
+      </div>
+      <div class="reparto" id="reparto"></div>
+      <div class="nota" style="margin-top:8px" id="faltaMas">Elemento que más falta: —</div>
+    </section>
+  </div>
+
+  <section class="card tabla">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+      <h2 style="margin:0">Registro de inspecciones</h2>
+      <span class="nota" id="nReg">0 registros</span>
+      <div class="der">
+        <button id="btnCsv">⬇ Exportar CSV</button>
+        <button id="btnBorrar">Borrar registro</button>
+      </div>
+    </div>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>#</th><th>Hora</th><th>Resultado del sistema</th><th>Faltantes</th><th>Cofia</th><th>Guantes</th><th>Bata</th><th>Latencia</th><th>Decisión docente</th></tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+    <div class="nota" style="margin-top:8px">El registro se guarda en este navegador (no sale del equipo). Use "Exportar CSV" para el informe.</div>
+  </section>
+</main>
+
+<script>
+// ---------- Configuracion ----------
+const ZONA = [0.40, 0.06, 0.68, 0.94];  // igual que ZONA_INSPECCION en src/predictores.py
+const ELEMENTOS = ["cofia", "guantes", "bata"];
+const UMBRAL_OK = 0.80, UMBRAL_FALTA = 0.30;
+const INTERVALO_MS = 250;   // maximo ~4 consultas por segundo
+const ESTABLE_N = 5;        // un resultado se registra cuando se repite en 5 respuestas seguidas
+const CLAVE = "agrointep_registros_v1";
+
+const $ = id => document.getElementById(id);
+const video = $("video"), capa = $("capa"), ctx = capa.getContext("2d");
+const lienzo = document.createElement("canvas");
+$("url").value = location.protocol.startsWith("http") ? location.origin + "/predict" : "http://localhost:8000/predict";
+
+let corriendo = false, ultimo = null, recientes = [], latencias = [], tiempos = [];
+let ultimoRegistrado = null, registros = cargar();
+
+function cargar(){ try { return JSON.parse(localStorage.getItem(CLAVE)) || []; } catch(e){ return []; } }
+function guardar(){ try { localStorage.setItem(CLAVE, JSON.stringify(registros)); } catch(e){} }
+function base(){ return $("url").value.replace(/\/predict\/?$/, ""); }
+function hora(d){ return d.toLocaleTimeString("es-CO", {hour12:false}); }
+setInterval(() => $("txReloj").textContent = hora(new Date()), 1000);
+
+// ---------- Salud de la API ----------
+async function salud(){
+  try {
+    const r = await fetch(base() + "/health", {cache:"no-store"});
+    const ok = r.ok;
+    $("ptApi").className = "punto " + (ok ? "on" : "off");
+    $("txApi").textContent = ok ? "API en línea" : "API con error " + r.status;
+  } catch(e){
+    $("ptApi").className = "punto off"; $("txApi").textContent = "API sin conexión";
+  }
+}
+salud(); setInterval(salud, 5000);
+
+// ---------- Camara ----------
+$("btnCam").onclick = async () => {
+  if (corriendo){ detener(); return; }
+  try {
+    const s = await navigator.mediaDevices.getUserMedia({video:{width:{ideal:1280}, height:{ideal:720}}, audio:false});
+    video.srcObject = s; await video.play();
+    $("vacio").style.display = "none";
+    corriendo = true; $("btnCam").textContent = "■ Detener cámara";
+    $("btnAut").disabled = $("btnRec").disabled = false;
+    bucle();
+  } catch(e){
+    $("vacio").innerHTML = "No se pudo abrir la cámara: " + e.message +
+      "<br>Cierre otros programas que la usen (p. ej. inspeccion_video) y recargue.";
+  }
+};
+function detener(){
+  corriendo = false;
+  (video.srcObject?.getTracks() || []).forEach(t => t.stop());
+  video.srcObject = null; $("vacio").style.display = "flex";
+  $("btnCam").textContent = "▶ Iniciar cámara"; $("btnAut").disabled = $("btnRec").disabled = true;
+  pintarBanner("espera");
+}
+
+function dibujarZona(){
+  const w = capa.clientWidth, h = capa.clientHeight;
+  capa.width = w; capa.height = h; ctx.clearRect(0,0,w,h);
+  if (!corriendo || !$("chkZona").checked || !video.videoWidth) return;
+  const esc = Math.min(w / video.videoWidth, h / video.videoHeight);
+  const vw = video.videoWidth * esc, vh = video.videoHeight * esc, ox = (w - vw)/2, oy = (h - vh)/2;
+  const [x0,y0,x1,y1] = ZONA;
+  const rx = ox + x0*vw, ry = oy + y0*vh, rw = (x1-x0)*vw, rh = (y1-y0)*vh;
+  ctx.fillStyle = "rgba(0,0,0,.45)";
+  ctx.fillRect(ox, oy, vw, ry-oy); ctx.fillRect(ox, ry+rh, vw, oy+vh-ry-rh);
+  ctx.fillRect(ox, ry, rx-ox, rh); ctx.fillRect(rx+rw, ry, ox+vw-rx-rw, rh);
+  const col = {aprobado:"#3fb950", denegado:"#f85149", incierto:"#e3b341"}[ultimo?.ingreso] || "#ffffff";
+  ctx.strokeStyle = col; ctx.lineWidth = 3; ctx.setLineDash([10,7]); ctx.strokeRect(rx, ry, rw, rh);
+  ctx.setLineDash([]); ctx.fillStyle = col; ctx.font = "600 13px Segoe UI";
+  ctx.fillText("ZONA DE INSPECCIÓN", rx + 6, ry + 18);
+}
+
+async function bucle(){
+  while (corriendo){
+    const t0 = performance.now();
+    dibujarZona();
+    try { await consultar(); } catch(e){ pintarError(e); }
+    const espera = INTERVALO_MS - (performance.now() - t0);
+    if (espera > 0) await new Promise(r => setTimeout(r, espera));
+  }
+}
+
+async function consultar(){
+  if (!video.videoWidth) return;
+  lienzo.width = video.videoWidth; lienzo.height = video.videoHeight;
+  lienzo.getContext("2d").drawImage(video, 0, 0);
+  const blob = await new Promise(r => lienzo.toBlob(r, "image/jpeg", 0.9));
+  const fd = new FormData(); fd.append("archivo", blob, "frame.jpg");
+  const t0 = performance.now();
+  const r = await fetch($("url").value, {method:"POST", body:fd});
+  if (!r.ok) throw new Error("HTTP " + r.status);
+  const j = await r.json();
+  const ida = performance.now() - t0;
+  latencias.push(Number(j.latencia_ms ?? ida)); if (latencias.length > 30) latencias.shift();
+  tiempos.push(performance.now()); if (tiempos.length > 20) tiempos.shift();
+  const fps = tiempos.length > 1 ? (tiempos.length-1) / ((tiempos.at(-1) - tiempos[0]) / 1000) : 0;
+  $("txRend").textContent = `${fps.toFixed(1)} FPS · ${Math.round(latencias.at(-1))} ms`;
+  procesar(normalizar(j));
+}
+
+// ---------- Interpretacion de la respuesta de la API ----------
+function normalizar(j){
+  const ingreso = String(j.ingreso || j.categoria || "incierto").toLowerCase();
+  const probs = j.probabilidades || {};
+  let estados = j.elementos && typeof j.elementos === "object" && !Array.isArray(j.elementos) ? j.elementos : null;
+  let faltan = j.faltantes;
+  if (typeof faltan === "string") faltan = faltan ? faltan.split(/[,\s]+/) : [];
+  faltan = (faltan || []).map(s => String(s).toLowerCase()).filter(Boolean);
+  const exigidos = estados ? Object.keys(estados) : ELEMENTOS.filter(e => e in probs);
+  return {ingreso, texto: j.resultado || ingreso.toUpperCase(), probs, estados, faltan, exigidos,
+          revision: !!j.requiere_revision, latencia: Number(j.latencia_ms ?? latencias.at(-1) ?? 0)};
+}
+
+function estadoDe(e, d){
+  if (d.estados && d.estados[e]) return String(d.estados[e]).toLowerCase();
+  if (d.estados && !(e in d.estados)) return "na";
+  const p = d.probs[e]; if (p == null) return "na";
+  return p >= UMBRAL_OK ? "ok" : (p <= UMBRAL_FALTA ? "falta" : "incierto");
+}
+
+function procesar(d){
+  ultimo = d;
+  pintarBanner(d.ingreso, d);
+  pintarElementos(d);
+  $("txReq").textContent = "Exigidos: " + (d.exigidos.length ? d.exigidos.join(", ") : "—");
+  recientes.push(d.ingreso + "|" + d.faltan.join(",")); if (recientes.length > ESTABLE_N) recientes.shift();
+  const estable = recientes.length === ESTABLE_N && recientes.every(x => x === recientes[0]);
+  if (estable && $("chkAuto").checked && recientes[0] !== ultimoRegistrado){
+    registrar(d, ""); ultimoRegistrado = recientes[0];
+  }
+}
+
+function pintarBanner(cat, d){
+  const b = $("banner"); b.className = "banner " + (["aprobado","denegado","incierto"].includes(cat) ? cat : "");
+  const map = {aprobado:["✅","INGRESO APROBADO"], denegado:["⛔","INGRESO DENEGADO"],
+               incierto:["⚠️","REVISIÓN DEL DOCENTE"], espera:["⏸","EN ESPERA"]};
+  const [ic, ti] = map[cat] || map.incierto;
+  $("bIcono").textContent = ic; $("bTitulo").textContent = ti;
+  if (!d){ $("bDetalle").textContent = "La inspección no ha iniciado."; return; }
+  $("bDetalle").textContent = cat === "denegado" && d.faltan.length ? "Falta: " + d.faltan.join(", ").toUpperCase()
+    : cat === "incierto" ? "El sistema no está seguro: el docente debe verificar." : "Todos los elementos exigidos están presentes.";
+}
+
+function pintarElementos(d){
+  const etiquetas = {ok:"Presente", falta:"Falta", incierto:"Dudoso", na:"No exigido"};
+  $("elementos").innerHTML = ELEMENTOS.map(e => {
+    const p = d.probs[e], st = estadoDe(e, d);
+    const pct = p == null ? 0 : Math.round(p*100);
+    const color = {ok:"var(--ok2)", falta:"var(--no2)", incierto:"var(--duda2)", na:"#56606b"}[st] || "#56606b";
+    return `<div class="el"><div class="fila"><span class="nombre">${e}</span>
+      <span class="tag ${st in etiquetas ? st : "na"}">${etiquetas[st] || st}</span></div>
+      <div class="barra"><i style="width:${pct}%;background:${color}"></i><span class="marca" style="left:${UMBRAL_OK*100}%"></span></div>
+      <div class="pct">Probabilidad de que esté puesto: ${p == null ? "—" : pct + " %"}</div></div>`;
+  }).join("");
+}
+
+function pintarError(e){
+  $("banner").className = "banner incierto";
+  $("bIcono").textContent = "🔌"; $("bTitulo").textContent = "ERROR DE CONEXIÓN";
+  $("bDetalle").textContent = "No responde " + $("url").value + " (" + e.message + "). ¿Está corriendo la API o el contenedor?";
+}
+
+// ---------- Registro ----------
+function registrar(d, docente){
+  registros.unshift({
+    n: registros.length + 1, fecha: new Date().toISOString(), resultado: d.ingreso,
+    faltantes: d.faltan.join(" "), cofia: d.probs.cofia, guantes: d.probs.guantes, bata: d.probs.bata,
+    latencia_ms: Math.round(d.latencia), docente: docente, exigidos: d.exigidos.join(" ")
+  });
+  if (registros.length > 2000) registros.pop();
+  guardar(); pintarRegistro();
+}
+function decisionDocente(valor){
+  if (!ultimo) return;
+  const r = registros[0];
+  if (r && !r.docente && Date.now() - new Date(r.fecha).getTime() < 60000){ r.docente = valor; guardar(); pintarRegistro(); }
+  else registrar(ultimo, valor);
+}
+$("btnAut").onclick = () => decisionDocente("autorizado");
+$("btnRec").onclick = () => decisionDocente("rechazado");
+document.addEventListener("keydown", e => {
+  if (e.target.tagName === "INPUT" || !corriendo) return;
+  if (e.key.toLowerCase() === "a") decisionDocente("autorizado");
+  if (e.key.toLowerCase() === "r") decisionDocente("rechazado");
+});
+
+function f2(p){ return p == null ? "—" : (p*100).toFixed(0) + " %"; }
+function pintarRegistro(){
+  const cls = {aprobado:"r-aprobado", denegado:"r-denegado", incierto:"r-incierto"};
+  const txt = {aprobado:"Aprobado", denegado:"Denegado", incierto:"A revisión"};
+  $("tbody").innerHTML = registros.slice(0, 300).map(r => `<tr><td>${r.n}</td><td>${hora(new Date(r.fecha))}</td>
+    <td class="${cls[r.resultado]||""}">${txt[r.resultado]||r.resultado}</td><td>${r.faltantes || "—"}</td>
+    <td>${f2(r.cofia)}</td><td>${f2(r.guantes)}</td><td>${f2(r.bata)}</td><td>${r.latencia_ms} ms</td>
+    <td>${r.docente === "autorizado" ? "✔ Autorizado" : r.docente === "rechazado" ? "✖ Rechazado" : "—"}</td></tr>`).join("");
+  $("nReg").textContent = registros.length + " registros";
+  const c = k => registros.filter(r => r.resultado === k).length;
+  const ok = c("aprobado"), no = c("denegado"), du = c("incierto"), tot = registros.length;
+  $("kTotal").textContent = tot; $("kOk").textContent = ok; $("kNo").textContent = no; $("kDuda").textContent = du;
+  $("kDoc").textContent = registros.filter(r => r.docente).length;
+  const lat = registros.map(r => r.latencia_ms).filter(Number.isFinite);
+  $("kLat").textContent = lat.length ? Math.round(lat.reduce((a,b)=>a+b,0)/lat.length) + " ms" : "—";
+  $("reparto").innerHTML = tot ? `<span style="width:${ok/tot*100}%;background:var(--ok)"></span>
+    <span style="width:${no/tot*100}%;background:var(--no)"></span><span style="width:${du/tot*100}%;background:var(--duda)"></span>` : "";
+  const cuenta = {}; registros.forEach(r => (r.faltantes||"").split(" ").filter(Boolean).forEach(e => cuenta[e] = (cuenta[e]||0)+1));
+  const top = Object.entries(cuenta).sort((a,b)=>b[1]-a[1])[0];
+  $("faltaMas").textContent = "Elemento que más falta: " + (top ? `${top[0]} (${top[1]} veces)` : "—");
+}
+pintarRegistro();
+
+$("btnCsv").onclick = () => {
+  const cab = ["n","fecha","resultado","faltantes","p_cofia","p_guantes","p_bata","latencia_ms","decision_docente","exigidos"];
+  const filas = registros.slice().reverse().map(r => [r.n, r.fecha, r.resultado, r.faltantes, r.cofia ?? "", r.guantes ?? "",
+    r.bata ?? "", r.latencia_ms, r.docente, r.exigidos].map(v => `"${String(v ?? "").replace(/"/g,'""')}"`).join(","));
+  const blob = new Blob(["﻿" + [cab.join(","), ...filas].join("\n")], {type:"text/csv;charset=utf-8"});
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
+  a.download = "registro_dashboard_" + new Date().toISOString().slice(0,10) + ".csv"; a.click();
+};
+$("btnBorrar").onclick = () => {
+  if (!registros.length) return;
+  if (confirm("¿Borrar los " + registros.length + " registros de este navegador? Exporte el CSV antes si lo necesita.")){
+    registros = []; ultimoRegistrado = null; guardar(); pintarRegistro();
+  }
+};
+window.addEventListener("resize", dibujarZona);
+</script>
+</body>
+</html>

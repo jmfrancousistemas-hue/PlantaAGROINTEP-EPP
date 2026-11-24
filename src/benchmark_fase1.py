@@ -1,8 +1,15 @@
 """Fase 1 (Primer corte): comparativa de modelos de ML clasico + PCA + K-Means.
 
-Uso: python -m src.benchmark_fase1
+Uso: python -m src.benchmark_fase1 [--seleccion logo|cv]
 Registra cada modelo en MLflow (experimento 'agrointep-fase1').
+
+Seleccion del modelo para el video en vivo (models/clasico.joblib):
+  logo (defecto): validacion dejando una persona fuera (LOGO) sobre TODAS las personas propias;
+                  gana el mayor F1 macro medio y, en empate, el de menos falsos aprobados.
+                  El modelo elegido se reentrena con todos los datos antes de guardarse.
+  cv:             criterio anterior (F1 de la validacion cruzada interna del split de train).
 """
+import argparse
 import time
 import warnings
 
@@ -19,7 +26,9 @@ from sklearn.metrics import (ConfusionMatrixDisplay, accuracy_score, adjusted_ra
                              confusion_matrix, f1_score, homogeneity_score,
                              normalized_mutual_info_score, precision_recall_fscore_support,
                              silhouette_score)
-from sklearn.model_selection import StratifiedGroupKFold, cross_val_score
+from sklearn.base import clone
+from sklearn.model_selection import (LeaveOneGroupOut, StratifiedGroupKFold, cross_val_predict,
+                                     cross_val_score)
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.svm import SVC
@@ -56,7 +65,23 @@ def pureza(y, clusters):
     return pd.crosstab(clusters, y).max(axis=1).sum() / len(y)
 
 
+def evaluar_logo(pipe, X, y, g):
+    """F1 macro medio por persona y tasa de falsos aprobados con LOGO."""
+    pred = cross_val_predict(pipe, X, y, groups=g, cv=LeaveOneGroupOut(), n_jobs=None)
+    f1s = []
+    for p in np.unique(g):
+        m = g == p
+        f1s.append(f1_score(y[m], pred[m], labels=sorted(np.unique(y[m])), average="macro",
+                            zero_division=0))
+    no_ok = y != "completo"
+    fa = float((pred[no_ok] == "completo").mean()) if no_ok.any() else float("nan")
+    return float(np.mean(f1s)), float(np.std(f1s)), fa
+
+
 def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--seleccion", choices=["logo", "cv"], default="logo")
+    a = ap.parse_args()
     df = load_features()
     cols = feature_cols(df)
     clases = sorted(df.clase.unique())
@@ -77,6 +102,13 @@ def main():
                                                random_state=SEED, n_jobs=-1),
         "SVM_RBF": SVC(C=3, class_weight="balanced", probability=True, random_state=SEED),
     }
+    propios = df[~df.grupo.astype(str).str.startswith(("pub", "sin_grupo"))]
+    Xp, yp = propios[cols].values, propios.clase.to_numpy(dtype=object)
+    gp = propios.grupo.astype(str).to_numpy(dtype=object)
+    hacer_logo = a.seleccion == "logo" and len(set(gp)) >= 3
+    if a.seleccion == "logo" and not hacer_logo:
+        print("AVISO: menos de 3 personas propias; se usa la seleccion por CV interna.")
+
     filas, ajustados = [], {}
     for nombre, clf in modelos.items():
         pipe = Pipeline([("sc", StandardScaler()), ("pca", PCA(0.95, random_state=SEED)),
@@ -94,6 +126,10 @@ def main():
                    "test_f1_macro": f1_score(yte, pred, average="macro"),
                    "tiempo_fit_s": t_fit, "n_componentes_pca": pipe["pca"].n_components_}
             met.update({f"recall_{c}": r for c, r in zip(clases, rec)})
+            if hacer_logo:
+                f1m, f1s, fa = evaluar_logo(clone(pipe), Xp, yp, gp)
+                met.update({"logo_f1_macro_mean": f1m, "logo_f1_macro_std": f1s,
+                            "logo_falsos_aprobados": fa})
             mlflow.log_param("modelo", nombre)
             mlflow.log_metrics(met)
             ConfusionMatrixDisplay(confusion_matrix(yte, pred, labels=clases),
@@ -124,13 +160,25 @@ def main():
     res = pd.DataFrame(filas)
     # El mejor modelo clasico (por F1 en validacion cruzada) alimenta el prototipo en vivo
     sup = res[res.tipo == "supervisado"]
-    mejor = sup.loc[sup.cv_f1_macro_mean.idxmax(), "modelo"]
-    joblib.dump(ajustados[mejor], MODELS / "clasico.joblib")
-    print(f"Mejor modelo clasico (guardado para video en vivo): {mejor}\n")
+    if hacer_logo:
+        orden = sup.assign(fa=sup.logo_falsos_aprobados.fillna(1.0)).sort_values(
+            ["logo_f1_macro_mean", "fa"], ascending=[False, True])
+        mejor = orden.iloc[0]["modelo"]
+        final = clone(ajustados[mejor]).fit(df[cols].values, df.clase.to_numpy(dtype=object))
+        criterio = "LOGO (F1 medio por persona), reentrenado con todos los datos"
+    else:
+        mejor = sup.loc[sup.cv_f1_macro_mean.idxmax(), "modelo"]
+        final = ajustados[mejor]
+        criterio = "F1 de validacion cruzada interna"
+    joblib.dump(final, MODELS / "clasico.joblib")
+    print(f"Mejor modelo clasico (guardado para video en vivo): {mejor}  [criterio: {criterio}]\n")
     res.to_csv(REPORTS / "benchmark_fase1.csv", index=False)
     pd.set_option("display.width", 200)
-    print(res[["modelo", "tipo", "cv_f1_macro_mean", "test_f1_macro", "test_accuracy",
-               "silhouette", "ARI", "pureza"]].round(3).to_string(index=False))
+    cols_res = ["modelo", "tipo", "cv_f1_macro_mean", "test_f1_macro", "test_accuracy"]
+    if hacer_logo:
+        cols_res += ["logo_f1_macro_mean", "logo_f1_macro_std", "logo_falsos_aprobados"]
+    cols_res += ["silhouette", "ARI", "pureza"]
+    print(res[cols_res].round(3).to_string(index=False))
     print("\nRecall por clase (clave: no omitir un EPP obligatorio):")
     print(res[["modelo"] + [f"recall_{c}" for c in clases]].dropna().round(3).to_string(index=False))
 

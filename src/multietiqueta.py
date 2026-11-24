@@ -3,6 +3,9 @@
 Uso:
   python -m src.multietiqueta                                  # cofia, guantes, bata
   python -m src.multietiqueta --elementos cofia,guantes,bata --img 224 --epochs-cabeza 10 --epochs-fine 10
+  python -m src.multietiqueta --test p01,p04                   # elegir las personas de test
+  python -m src.multietiqueta --requeridos cofia,bata          # practica sin guantes obligatorios
+  python -m src.multietiqueta --sin-recorte                    # comparar con el cuadro completo
 Salida: models/epp_multi.keras, models/elementos.json, reports/multi_metricas.csv  (+ MLflow)
 
 Datos (el nombre de la carpeta da la etiqueta de cada elemento):
@@ -10,6 +13,10 @@ Datos (el nombre de la carpeta da la etiqueta de cada elemento):
                                              -> los tres elementos quedan etiquetados.
   dataset/publico/<elemento>/<si|no>/*.jpg   datos publicos: solo UN elemento etiquetado; en los
                                              demas la perdida los ignora (ver convertir_yolo_elementos).
+Zona de inspeccion: las fotos propias se recortan a ZONA_INSPECCION (donde se para el
+estudiante) y se llevan a img x img sin deformar (relleno negro). Las publicas ya son recortes:
+solo se llevan a img x img sin deformar. El video en vivo y la API hacen lo mismo (la zona queda
+guardada en elementos.json).
 Evaluacion honesta: el test usa solo personas de su camara, separadas por persona.
 Reporta, por elemento, recall/precision de "FALTA" y, a nivel de ingreso, los FALSOS APROBADOS
 (aprobar a quien no cumple) con las mismas reglas y umbrales que usa el video en vivo.
@@ -28,7 +35,8 @@ import pandas as pd
 import tensorflow as tf
 from sklearn.metrics import precision_recall_fscore_support
 
-from .predictores import UMBRAL_APROBAR, UMBRAL_DEFECTO, evaluar_elementos
+from .predictores import (UMBRAL_APROBAR, UMBRAL_DEFECTO, ZONA_INSPECCION, evaluar_elementos,
+                          requeridos_por_defecto)
 
 ROOT = Path(__file__).resolve().parent.parent
 RAW, PUBLICO = ROOT / "dataset" / "raw", ROOT / "dataset" / "publico"
@@ -99,13 +107,30 @@ def dividir_personas(df, frac, seed=SEED):
     return df[~es], df[es]
 
 
-def hacer_ds(rutas, y, entrenar, img, batch=32):
-    def cargar(p, t):
+def recortar_tf(im, zona):
+    """Mismo recorte que predictores.recortar_zona (int() trunca igual que el cast)."""
+    h, w = tf.cast(tf.shape(im)[0], tf.float32), tf.cast(tf.shape(im)[1], tf.float32)
+    x0, y0, x1, y1 = zona
+    a, b = tf.cast(w * x0, tf.int32), tf.cast(h * y0, tf.int32)
+    c, d = tf.cast(w * x1, tf.int32), tf.cast(h * y1, tf.int32)
+    return im[b:d, a:c, :]
+
+
+def hacer_ds(rutas, y, entrenar, img, recortar=None, zona=None, batch=32):
+    """recortar: lista de bool por imagen (True = foto de la camara -> recortar la zona)."""
+    if recortar is None or zona is None:
+        recortar = [False] * len(rutas)
+
+    def cargar(p, t, r):
         im = tf.io.decode_image(tf.io.read_file(p), channels=3, expand_animations=False)
         im.set_shape([None, None, 3])
-        return tf.image.resize(im, (img, img)), t
+        if zona is not None:
+            im = tf.cond(r, lambda: recortar_tf(im, zona), lambda: im)
+            return tf.image.resize_with_pad(im, img, img), t
+        return tf.image.resize(im, (img, img)), t  # modo antiguo: deforma a cuadrado
 
-    ds = tf.data.Dataset.from_tensor_slices((list(rutas), np.asarray(y, dtype="float32")))
+    ds = tf.data.Dataset.from_tensor_slices((list(rutas), np.asarray(y, dtype="float32"),
+                                             np.asarray(list(recortar), dtype=bool)))
     if entrenar:
         ds = ds.shuffle(2048, seed=SEED)
     return ds.map(cargar, num_parallel_calls=AUTOTUNE).batch(batch).prefetch(AUTOTUNE)
@@ -124,7 +149,9 @@ def construir(n, img, pesos):
     aug = tf.keras.Sequential([tf.keras.layers.RandomFlip("horizontal"),
                                tf.keras.layers.RandomRotation(0.05),
                                tf.keras.layers.RandomZoom(0.1),
-                               tf.keras.layers.RandomBrightness(0.2)], name="augmentacion")
+                               tf.keras.layers.RandomBrightness(0.25),
+                               # contraste: ayuda con sesiones de luz distinta (caso p01)
+                               tf.keras.layers.RandomContrast(0.25)], name="augmentacion")
     inp = tf.keras.Input((img, img, 3))
     x = aug(inp)
     x = tf.keras.layers.Rescaling(1 / 127.5, offset=-1)(x)  # = preprocess de MobileNetV2
@@ -147,9 +174,21 @@ def main():
     ap.add_argument("--sin-publicos", action="store_true",
                     help="ignora dataset/publico/ (para comparar: si no mejoran el test, descartelos)")
     ap.add_argument("--pesos", default="imagenet", help="imagenet | none (sin descargar pesos)")
+    ap.add_argument("--test", default="",
+                    help="personas de test separadas por coma (p. ej. p01,p04); por defecto ~30%% al azar")
+    ap.add_argument("--requeridos", default="",
+                    help="EPP exigidos para la decision de ingreso (p. ej. cofia,bata); "
+                         "por defecto EPP_REQUERIDOS o todos. El modelo aprende igual todos.")
+    ap.add_argument("--sin-recorte", action="store_true",
+                    help="usar el cuadro completo deformado (modo antiguo, para comparar)")
     a = ap.parse_args()
     tf.keras.utils.set_random_seed(SEED)
     elementos = [e.strip() for e in a.elementos.split(",") if e.strip()]
+    requeridos = [e.strip() for e in a.requeridos.split(",") if e.strip()] or \
+        [e for e in requeridos_por_defecto() if e in elementos]
+    if not set(requeridos) <= set(elementos):
+        raise SystemExit(f"--requeridos {requeridos} debe ser subconjunto de --elementos {elementos}")
+    zona = None if a.sin_recorte else ZONA_INSPECCION
 
     df = construir_tabla(elementos)
     if df.empty:
@@ -163,18 +202,29 @@ def main():
     if n_pers < 3:
         raise SystemExit(f"Hay {n_pers} personas propias; se necesitan al menos 3 (train, val y "
                          "test por persona). Ideal: 6 o mas.")
-    resto, test = dividir_personas(propios, 0.30)
+    if a.test:
+        elegidas = {p.strip() for p in a.test.split(",") if p.strip()}
+        desconocidas = elegidas - set(propios.grupo)
+        if desconocidas:
+            raise SystemExit(f"--test: personas sin fotos: {sorted(desconocidas)}")
+        es_test = propios.grupo.isin(elegidas)
+        resto, test = propios[~es_test], propios[es_test]
+    else:
+        resto, test = dividir_personas(propios, 0.30)
     train_p, val = dividir_personas(resto, 0.20, SEED + 1)
     train = pd.concat([train_p, publicos])
     print(f"Personas propias: {n_pers} | train {train_p.grupo.nunique()} (+{len(publicos)} publicas) "
-          f"| val {val.grupo.nunique()} | test {test.grupo.nunique()}")
+          f"| val {val.grupo.nunique()} | test {test.grupo.nunique()} ({', '.join(sorted(test.grupo.unique()))})")
+    print(f"Recorte zona de inspeccion: {'NO (cuadro completo)' if zona is None else zona} | "
+          f"requeridos para la decision: {', '.join(requeridos)}")
     assert not (set(train.grupo) & set(test.grupo)) and not (set(val.grupo) & set(test.grupo))
     Y = np.stack(train.y.to_numpy())
     for j, e in enumerate(elementos):
         print(f"  {e}: presente={int((Y[:, j] == 1).sum())} ausente={int((Y[:, j] == 0).sum())} "
               f"sin etiqueta={int((Y[:, j] < 0).sum())}")
 
-    ds = lambda d, ent: hacer_ds(d.path, np.stack(d.y.to_numpy()), ent, a.img)  # noqa: E731
+    ds = lambda d, ent: hacer_ds(d.path, np.stack(d.y.to_numpy()), ent, a.img,  # noqa: E731
+                                 recortar=(d.origen == "propio").to_numpy(), zona=zona)
     ds_tr, ds_va, ds_te = ds(train, True), ds(val, False), ds(test, False)
 
     pesos = None if a.pesos.lower() == "none" else a.pesos
@@ -189,7 +239,9 @@ def main():
     with mlflow.start_run(run_name="MobileNetV2_multietiqueta"):
         mlflow.log_params({"base": "MobileNetV2", "salidas": ",".join(elementos), "img": a.img,
                            "n_train": len(train), "n_val": len(val), "n_test": len(test),
-                           "n_publicas": len(publicos)})
+                           "n_publicas": len(publicos), "recorte": zona is not None,
+                           "requeridos": ",".join(requeridos),
+                           "test_personas": ",".join(sorted(test.grupo.unique()))})
         es = tf.keras.callbacks.EarlyStopping(patience=a.paciencia, restore_best_weights=True)
         model.compile(tf.keras.optimizers.Adam(1e-3), perdida_enmascarada)
         model.fit(ds_tr, validation_data=ds_va, epochs=a.epochs_cabeza, callbacks=[es], verbose=2)
@@ -215,9 +267,10 @@ def main():
             met.update({f"recall_falta_{e}": rc[0], f"precision_falta_{e}": pr[0],
                         f"f1_falta_{e}": f1[0]})
         # Decision de ingreso con las MISMAS reglas y umbrales del video en vivo
-        cumple_real = (Yt == 1).all(axis=1)
-        dec = [evaluar_elementos(dict(zip(elementos, p)), UMBRAL_DEFECTO, UMBRAL_APROBAR)[0]
-               for p in P]
+        idx_req = [elementos.index(e) for e in requeridos]
+        cumple_real = (Yt[:, idx_req] == 1).all(axis=1)
+        dec = [evaluar_elementos(dict(zip(elementos, p)), UMBRAL_DEFECTO, UMBRAL_APROBAR,
+                                 requeridos)[0] for p in P]
         aprob = np.array([d == "aprobado" for d in dec])
         niega = np.array([d == "denegado" for d in dec])
         inc = np.array([d == "incierto" for d in dec])
@@ -234,15 +287,17 @@ def main():
         mlflow.log_metrics(met)
 
         model.save(MODELS / "epp_multi.keras")
-        (MODELS / "elementos.json").write_text(json.dumps({"elementos": elementos, "img": a.img}),
-                                               encoding="utf-8")
+        (MODELS / "elementos.json").write_text(json.dumps(
+            {"elementos": elementos, "img": a.img, "zona": list(zona) if zona else None}),
+            encoding="utf-8")
         pd.DataFrame(filas).to_csv(REPORTS / "multi_metricas.csv", index=False)
         mlflow.log_artifact(str(MODELS / "elementos.json"))
 
     pd.set_option("display.width", 160)
     print("\nPor elemento (clase positiva = FALTA; el recall es lo critico):")
     print(pd.DataFrame(filas).round(3).to_string(index=False))
-    print("\nDecision de ingreso en el test (mismas reglas que el video en vivo):")
+    print(f"\nDecision de ingreso en el test (mismas reglas que el video en vivo; "
+          f"requeridos: {', '.join(requeridos)}):")
     for k in ("falsos_aprobados_tasa", "aprobados_correctos_tasa", "denegados_indebidos_tasa",
               "incierto_tasa", "latencia_ms"):
         print(f"  {k}: {met[k]:.3f}")

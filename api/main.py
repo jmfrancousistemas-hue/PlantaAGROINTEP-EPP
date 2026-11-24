@@ -23,6 +23,9 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 
 from src.predictores import UMBRAL_APROBAR, UMBRAL_DEFECTO, crear_predictor, decidir
 
+from pathlib import Path
+from fastapi.responses import FileResponse
+
 BACKEND = os.getenv("EPP_BACKEND", "multi")
 UMBRAL = float(os.getenv("EPP_UMBRAL", UMBRAL_DEFECTO))
 UMBRAL_AP = float(os.getenv("EPP_UMBRAL_APROBAR", UMBRAL_APROBAR))
@@ -99,3 +102,7 @@ def predict(archivo: UploadFile = File(...)):
             "confianza": round(conf, 4),
             "probabilidades": {k: round(v, 4) for k, v in probs.items()},
             "requiere_revision": revision, "latencia_ms": round(lat, 1)}
+
+@app.get("/dashboard", include_in_schema=False)
+def dashboard():
+    return FileResponse(Path(__file__).parent / "static" / "dashboard.html")
