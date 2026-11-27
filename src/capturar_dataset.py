@@ -1,8 +1,8 @@
 """Captura del dataset propio con la plantilla de encuadre en pantalla.
 
 Uso:
-  uv run python -m src.capturar_dataset --persona p05 --clase falta_bata
-  uv run python -m src.capturar_dataset --persona p05 --clase sin_epp --fuente 1
+  uv run python -m src.capturar_dataset --persona p05 --clase falta_bata (webcam)
+  uv run python -m src.capturar_dataset --persona p05 --clase sin_epp --fuente 1 (cámara externo)
 
 Teclas: ESPACIO inicia la tanda (cuenta regresiva de 3 s) | g mostrar/ocultar guia | q salir
 Cada tanda guarda --fotogramas imagenes (60 por defecto), una cada --intervalo s (0.5 -> 30 s),

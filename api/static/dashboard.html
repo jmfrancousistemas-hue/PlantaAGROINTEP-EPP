@@ -43,6 +43,7 @@
   button.rojo{background:rgba(218,54,51,.2);border-color:var(--no);color:var(--no2)}
   button:disabled{opacity:.45;cursor:not-allowed}
   label.chk{display:flex;gap:6px;align-items:center;color:var(--tenue);font-size:13.5px}
+  select{font:inherit;background:var(--panel2);border:1px solid var(--borde);color:var(--texto);border-radius:8px;padding:7px 10px;max-width:260px}
   input[type=text]{font:inherit;background:var(--panel2);border:1px solid var(--borde);color:var(--texto);border-radius:8px;padding:7px 10px;width:290px}
   .elementos{display:grid;gap:10px}
   .el{background:var(--panel2);border:1px solid var(--borde);border-radius:10px;padding:10px 12px}
@@ -105,6 +106,7 @@
     </div>
 
     <div class="controles">
+      <select id="selCam" title="Cámara"><option value="">Cámara predeterminada</option></select>
       <button class="prim" id="btnCam">▶ Iniciar cámara</button>
       <button class="verde" id="btnAut" disabled>✔ Autorizar (A)</button>
       <button class="rojo" id="btnRec" disabled>✖ Rechazar (R)</button>
@@ -198,11 +200,38 @@ async function salud(){
 salud(); setInterval(salud, 5000);
 
 // ---------- Camara ----------
+const CLAVE_CAM = "agrointep_camara_v1";
+function camGuardada(){ try { return localStorage.getItem(CLAVE_CAM) || ""; } catch(e){ return ""; } }
+async function listarCamaras(){
+  try {
+    const devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === "videoinput");
+    const sel = $("selCam"), actual = sel.value || camGuardada();
+    sel.innerHTML = '<option value="">Cámara predeterminada</option>' + devs.map((d, i) =>
+      `<option value="${d.deviceId}">${d.label || ("Cámara " + (i + 1))}</option>`).join("");
+    if (devs.some(d => d.deviceId === actual)) sel.value = actual;
+  } catch(e){}
+}
+listarCamaras();
+navigator.mediaDevices?.addEventListener?.("devicechange", listarCamaras);
+async function abrirCamara(){
+  const id = $("selCam").value;
+  const video_ = {width:{ideal:1280}, height:{ideal:720}};
+  if (id) video_.deviceId = {exact: id};
+  const s = await navigator.mediaDevices.getUserMedia({video: video_, audio:false});
+  (video.srcObject?.getTracks() || []).forEach(t => t.stop());
+  video.srcObject = s; await video.play();
+  await listarCamaras();   // con permiso concedido ya aparecen los nombres reales
+  const usada = s.getVideoTracks()[0]?.getSettings?.().deviceId;
+  if (usada) { $("selCam").value = usada; try { localStorage.setItem(CLAVE_CAM, usada); } catch(e){} }
+}
+$("selCam").onchange = async () => {
+  try { localStorage.setItem(CLAVE_CAM, $("selCam").value); } catch(e){}
+  if (corriendo){ try { await abrirCamara(); } catch(e){ $("vacio").style.display = "flex"; $("vacio").innerHTML = "No se pudo abrir esa cámara: " + e.message; } }
+};
 $("btnCam").onclick = async () => {
   if (corriendo){ detener(); return; }
   try {
-    const s = await navigator.mediaDevices.getUserMedia({video:{width:{ideal:1280}, height:{ideal:720}}, audio:false});
-    video.srcObject = s; await video.play();
+    await abrirCamara();
     $("vacio").style.display = "none";
     corriendo = true; $("btnCam").textContent = "■ Detener cámara";
     $("btnAut").disabled = $("btnRec").disabled = false;

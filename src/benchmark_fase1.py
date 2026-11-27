@@ -1,4 +1,4 @@
-"""Fase 1 (Primer corte): comparativa de modelos de ML clasico + PCA + K-Means.
+"""Fase 1 (Primer corte): comparativa de modelos de ML clasico (supervisada) + PCA + K-Means (no supervisada).
 
 Uso: python -m src.benchmark_fase1 [--seleccion logo|cv]
 Registra cada modelo en MLflow (experimento 'agrointep-fase1').
